@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hydro Flow | Professional IoT Motor Control</title>
+    <meta name="description"
+        content="Professional water motor management dashboard. Real-time monitoring, analytics, and automated scheduling for smart water systems.">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+
+<body>
+    <div class="dashboard-wrapper">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <img src="assets/logo.png" alt="TS" id="appLogo">
+                </div>
+                <div class="logo-text">Hydro<span>Flow</span></div>
+            </div>
+
+            <ul class="nav-links">
+                <li class="active" data-tab="live">
+                    <span class="icon"><i class="fas fa-th-large"></i></span> <span class="label">Main Dashboard</span>
+                </li>
+                <li data-tab="analytics">
+                    <span class="icon"><i class="fas fa-chart-line"></i></span> <span class="label">Performance</span>
+                </li>
+                <li data-tab="history">
+                    <span class="icon"><i class="fas fa-history"></i></span> <span class="label">Activity Logs</span>
+                </li>
+                <li data-tab="schedules">
+                    <span class="icon"><i class="fas fa-calendar-alt"></i></span> <span class="label">Automations</span>
+                </li>
+                <li data-tab="weather">
+                    <span class="icon"><i class="fas fa-cloud-sun"></i></span> <span class="label">Weather Info</span>
+                </li>
+                <li data-tab="settings">
+                    <span class="icon"><i class="fas fa-cog"></i></span> <span class="label">Configuration</span>
+                </li>
+            </ul>
+
+            <!-- Creator Card -->
+            <div class="creator-card">
+                <div class="profile-pic" id="profilePicTrigger">
+                    <img src="assets/profile.jpg" alt="IM" id="profileImg">
+                </div>
+                <div class="creator-info">
+                    <h4>Issac Moses D</h4>
+                    <p>Software Engineer</p>
+                    <a href="http://www.issacmoses.xyz" target="_blank" class="portfolio-btn">
+                        View Portfolio
+                    </a>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content Area -->
+        <div class="app-container">
+            <!-- Header -->
+            <header>
+                <div class="header-main">
+                    <h1>Hydro<span>Flow</span> Dashboard</h1>
+                    <p>Intelligent Water Management System</p>
+                </div>
+                <div class="system-status">
+                    <div class="mode-badge" id="modeText"><span class="pulse-dot sys-online"></span> SYSTEM ONLINE</div>
+                    <div class="node-heartbeats">
+                        <span id="motorNodeStatus" class="node-status active"><span class="pulse-dot"></span> <span>CONTROLLER</span></span>
+                        <span id="tankNodeStatus" class="node-status"><span class="pulse-dot offline"></span> <span>SENSOR NODE</span></span>
+                    </div>
+                </div>
+            </header>
+
+            <main>
+                <!-- Alerts -->
+                <div id="alertBox" class="alert-container"></div>
+
+                <!-- PAGE: LIVE DASHBOARD -->
+                <div id="tab-live" class="tab-content active">
+                    <div class="grid">
+
+                        <!-- Weather Summary Card -->
+                        <div class="card weather-card">
+                            <div class="card-title">
+                                <h2>Atmospheric Data</h2>
+                            </div>
+                            <div id="weatherContent" class="weather-content">
+                                <div class="weather-loading">Retrieving data...</div>
+                            </div>
+                            <div class="stats-line weather-footer">
+                                <div class="stat-item">
+                                    <label>Temperature</label>
+                                    <span id="weatherTemp">--°C</span>
+                                </div>
+                                <div class="stat-item">
+                                    <label>Percipitation</label>
+                                    <span id="weatherRain">--%</span>
+                                </div>
+                                <div class="stat-item">
+                                    <label>Humidity</label>
+                                    <span id="weatherHum">--%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Water Level Card -->
+                        <div class="card">
+                            <div class="card-title">
+                                <h2>Current Water Level</h2>
+                            </div>
+                            <div class="tank-visual">
+                                <div id="waterFill" class="water" style="height:0%;"></div>
+                                <div class="level-text">
+                                    <span id="levelText">0%</span>
+                                    <small id="levelDesc">STANDBY</small>
+                                </div>
+                            </div>
+                            <div class="stats-line">
+                                <div class="stat-item">
+                                    <label>Last Sync</label>
+                                    <span id="lastUpdated">--:--</span>
+                                </div>
+                                <div class="stat-item">
+                                    <label>Sensor Status</label>
+                                    <span id="tankStatus" class="stat-val offline">OFFLINE</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Motor Control Card -->
+                        <div class="card">
+                            <div class="card-title">
+                                <h2>Motor Control Unit</h2>
+                            </div>
+                            <div class="motor-status">
+                                <div id="motorIndicator" class="state-indicator off">
+                                    <div class="core" id="motorStateText">OFF</div>
+                                </div>
+                                <div class="ctrl-btns">
+                                    <button id="btnOn" class="btn btn-on">ACTIVATE</button>
+                                    <button id="btnOff" class="btn btn-off">DEACTIVATE</button>
+                                </div>
+                            </div>
+                            <div class="stats-line">
+                                <div class="stat-item">
+                                    <label>Current Session</label>
+                                    <span id="runTime">0 min</span>
+                                </div>
+                                <div class="stat-item">
+                                    <label>Safety Timeout</label>
+                                    <span id="safetyTimer" class="stat-val highlight">--:--</span>
+                                </div>
+                                <div class="stat-item">
+                                    <label>Control Mode</label>
+                                    <span id="overrideStatus">Standard</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PAGE: ACTIVITY HISTORY -->
+                <div id="tab-history" class="tab-content">
+                    <div class="grid">
+                        <div class="card" style="grid-column: 1 / -1;">
+                            <div class="card-title">
+                                <h2>System Activity Log</h2>
+                            </div>
+                            <div id="logList" class="log-container"></div>
+                            <div style="display:flex; justify-content: space-between; align-items: center; margin-top:20px;">
+                                <div class="stat-item">
+                                    <label>Total Records</label>
+                                    <span id="logCount">0</span>
+                                </div>
+                                <button id="btnReport" class="btn btn-on" style="max-width: 200px;">EXCEL EXPORT</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PAGE: AUTOMATION CENTER -->
+                <div id="tab-schedules" class="tab-content">
+                    <div class="grid">
+                        <div class="card" style="grid-column: 1 / -1;">
+                            <div class="card-title">
+                                <h2>Scheduler & Automations</h2>
+                            </div>
+                            <div class="schedule-body">
+                                <div class="add-schedule-row">
+                                    <input type="time" id="newScheduleTime" value="06:00" class="setting-input">
+                                    <button id="btnAddSchedule" class="btn btn-on">CREATE SCHEDULE</button>
+                                </div>
+                                <div id="scheduleList" class="schedule-list">
+                                    <div class="schedule-loading">Accessing local storage...</div>
+                                </div>
+                            </div>
+                            <div class="stats-line" style="margin-top: 30px;">
+                                <div class="stat-item">
+                                    <label>Auto-Stop Trigger</label>
+                                    <span class="stat-val active">Full Sensor Detection</span>
+                                </div>
+                                <div class="stat-item">
+                                    <label>Max Continuous Run</label>
+                                    <span class="stat-val active">30 Minutes</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PAGE: WEATHER FORECAST -->
+                <div id="tab-weather" class="tab-content">
+                    <div class="grid">
+                        <div class="card" style="grid-column: 1 / -1;">
+                            <div class="card-title">
+                                <h2>Extended Forecast</h2>
+                            </div>
+                            <div id="weatherFullContent" class="weather-forecast-grid">
+                                <div class="weather-loading">Synchronizing with weather API...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PAGE: SYSTEM CONFIGURATION -->
+                <div id="tab-settings" class="tab-content">
+                    <div class="grid">
+                        <div class="card">
+                            <div class="card-title">
+                                <h2>Local Network Configuration</h2>
+                            </div>
+                            <div class="settings-group">
+                                <div class="setting-item">
+                                    <label>Target Node IP</label>
+                                    <input type="text" id="localIpInputS" placeholder="192.168.1.XX" class="setting-input">
+                                </div>
+                                <div class="setting-item" style="flex-direction: row; justify-content: space-between; align-items: center;">
+                                    <label>Local Override Mode</label>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="localModeToggleS">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-title">
+                                <h2>User Preferences</h2>
+                            </div>
+                            <div class="settings-group">
+                                <div class="setting-item" style="flex-direction: row; justify-content: space-between; align-items: center;">
+                                    <label>Voice Notifications</label>
+                                    <button id="btnVoiceToggleS" class="btn pref-btn">🔊</button>
+                                </div>
+                                <div class="setting-item" style="flex-direction: row; justify-content: space-between; align-items: center;">
+                                    <label>Primary Language</label>
+                                    <button id="btnLangToggleS" class="btn pref-btn" style="width: 80px;">EN</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PAGE: ANALYTICS -->
+                <div id="tab-analytics" class="tab-content">
+                    <div class="analytics-grid">
+                        <div class="card">
+                            <div class="card-title">
+                                <h2>Financial Forecast</h2>
+                            </div>
+                            <div class="big-stat">
+                                <span id="projBill">₹0</span>
+                                <small>EST. MONTHLY EXPENDITURE</small>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-title">
+                                <h2>Operating Efficiency</h2>
+                            </div>
+                            <div class="big-stat">
+                                <span id="sysHealth">Optimal</span>
+                                <small>SYSTEM PERFORMANCE STATUS</small>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-title">
+                                <h2>Energy Consumption</h2>
+                            </div>
+                            <div class="big-stat-row">
+                                <div class="big-stat">
+                                    <span id="kwhUnits">0.00</span>
+                                    <small>kWh Today</small>
+                                </div>
+                                <div class="big-stat">
+                                    <span id="totalCost">₹0.00</span>
+                                    <small>Cost Today</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card analytics-chart-card">
+                            <div class="card-title">
+                                <h2>Weekly Usage Analytics</h2>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="usageChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <!-- Lightbox Modal -->
+    <div id="lightbox" class="lightbox">
+        <span class="close-lightbox">&times;</span>
+        <div class="modal-card">
+            <div class="modal-img-container">
+                <img id="lightboxImg" src="assets/profile.jpg" alt="Creator">
+            </div>
+            <div class="modal-info">
+                <h2 id="modalName">Issac Moses D</h2>
+                <p id="modalDesc">B Tech - AI & DS</p>
+                <a href="http://www.issacmoses.xyz" target="_blank" class="btn btn-on">
+                    VISIT PORTFOLIO
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="script.js"></script>
+</body>
+
+</html>

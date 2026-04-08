@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+dist/
+www/build/
+
+# IDE/Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project specific
+.agent/
+.gemini/
+*.log
+
+# Build artifacts
+android/app/build/
+ios/App/build/
+
+# Hardware binaries
+*.bin
+*.elf
+*.hex
