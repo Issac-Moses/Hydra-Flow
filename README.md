@@ -75,10 +75,31 @@ npx cap open android
 
 ---
 
-## 🛡️ Hardware Schematics
+## 🔌 Circuit Diagrams (Hardware Setup)
 
-- **Motor Node**: Relay connected to `D1`.
-- **Level Node**: Float switch connected to `D2` (utilizing internal/external Pull-up).
+Making it easy to connect your hardware! Follow these visual guides to set up your NodeMCU nodes.
+
+### 1. Motor Control Node
+Connect your NodeMCU to a 1-channel relay to control the water pump.
+![Motor Control Circuit](assets/diagrams/motor_control_circuit.png)
+
+*   **Pin Connection**: NodeMCU `D1` → Relay `IN`.
+*   **Power**: NodeMCU `5V` → Relay `VCC`, NodeMCU `GND` → Relay `GND`.
+
+### 2. Water Tank Level Sensor
+Connect your NodeMCU to a magnetic float switch for level detection.
+![Tank Sensor Circuit](assets/diagrams/tank_sensor_circuit.png)
+
+*   **Pin Connection**: NodeMCU `D2` → Float Switch (Wire 1).
+*   **Ground**: NodeMCU `GND` → Float Switch (Wire 2).
+*   **Logic**: No external resistor needed if using internal pull-up (configured in `tank_sensor.ino`).
+
+---
+
+## 🛡️ Hardware Pinout Summary
+
+- **Motor Node**: Relay Signal connected to `D1`.
+- **Level Node**: Float switch connected to `D2`.
 
 ---
 
