@@ -62,8 +62,10 @@ ESP8266WebServer server(80);
 void connectWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
     if (connecting) {
-      Serial.print("[WiFi] Connected! IP: ");
-      Serial.println(WiFi.localIP());
+      Serial.println("\n[WiFi] Connected!");
+      Serial.print("IP Address: "); Serial.println(WiFi.localIP());
+      Serial.print("Gateway:    "); Serial.println(WiFi.gatewayIP());
+      Serial.print("DNS:        "); Serial.println(WiFi.dnsIP());
       connecting = false;
     }
     return;
@@ -98,11 +100,13 @@ void syncToSupabase() {
 
   WiFiClientSecure client;
   client.setInsecure();
+  client.setBufferSizes(1024, 1024); // Optimization: Reduce memory usage for SSL
+  
   HTTPClient http;
 
   String url = String(supabaseUrl) + "/rest/v1/ac_system?id=eq.1";
   http.begin(client, url);
-  http.setTimeout(5000);
+  http.setTimeout(8000); // Increased timeout
   http.addHeader("apikey",        anonKey);
   http.addHeader("Authorization", "Bearer " + String(anonKey));
   http.addHeader("Content-Type",  "application/json");
@@ -135,11 +139,13 @@ void pollSupabase() {
 
   WiFiClientSecure client;
   client.setInsecure();
+  client.setBufferSizes(1024, 1024); // Optimization: Reduce memory usage for SSL
+  
   HTTPClient http;
 
   String url = String(supabaseUrl) + "/rest/v1/ac_system?id=eq.1&select=ac_status";
   http.begin(client, url);
-  http.setTimeout(5000);
+  http.setTimeout(8000); // Increased timeout
   http.addHeader("apikey",        anonKey);
   http.addHeader("Authorization", "Bearer " + String(anonKey));
 
