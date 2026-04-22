@@ -12,15 +12,16 @@
 
 - **Real-Time Monitoring**: Instant updates on water levels and motor status via Supabase.
 - **Remote Motor Control**: Toggle your water motor from anywhere in the world.
-- **Multi-Schedule Support**: Set up to 10 daily schedules for automatic motor operation.
+- **Multi-Schedule Support**: Set up to 10 daily schedules for automatic motor and AC operation.
 - **Intelligent Tank Sensing**: Stable, anti-flicker logic for accurate water level reporting.
 - **Local Control Interface**: Integrated web server for direct control even when the internet is down.
 - **Safety First**: Hardcoded 30-minute safety timer to prevent motor burnout.
 - **Heartbeat Tracking**: Visual indicators for node connectivity status.
+- **Static IP Support**: Optimized connection speed and stability using static IP addresses.
 
 ## 🛠️ Technology Stack
 
-- **Hardware**: ESP8266 (NodeMCU), Float Switch Sensors, Relay Modules.
+- **Hardware**: ESP8266 (NodeMCU), Float Switch Sensors, Relay Modules, IRLZ44N Logic Level MOSFETs.
 - **Frontend**: HTML5, CSS3, JavaScript (Vanilla), Capacitor (for Mobile).
 - **Backend/DB**: Supabase (PostgreSQL + Real-time).
 - **Firmware**: Arduino/C++.
@@ -31,6 +32,8 @@
 
 ```text
 ├── motor_control.ino       # ESP8266 Firmware for Motor Node
+├── motor_control_static.ino# ESP8266 Firmware for Motor Node (Static IP)
+├── ac_control.ino          # ESP8266 Firmware for AC Control Node
 ├── tank_sensor.ino         # ESP8266 Firmware for Tank Level Node
 ├── www/                    # Mobile/Web Frontend Assets
 │   ├── index.html          # Main Dashboard UI
@@ -38,6 +41,7 @@
 │   └── style.css           # Modern Glassmorphism Styles
 ├── android/                # Capacitor Android Project
 ├── database.sql            # Supabase Schema Definitions
+├── ac_connection_guide.md  # Detailed guide for AC Node wiring
 └── capacitor.config.json   # Capacitor Configuration
 ```
 

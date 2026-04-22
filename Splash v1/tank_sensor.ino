@@ -12,32 +12,26 @@ const char* anonKey     = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 /* ═════════ PIN ═════════ */
 const int floatSwitchPin = D2;
-const int acIndicatorPin = D5; // AC Status LED feedback
 
 /* ═════════ SETTINGS ═════════ */
 const unsigned long SEND_INTERVAL  = 5000;
 const unsigned long RETRY_INTERVAL = 10000;
-const unsigned long AC_POLL_INTERVAL = 5000;
 
-// Original values restored — my 10s/30s values caused "always 100%" bug
-const unsigned long STABLE_DELAY = 3000; // 3s stable before accepting
-const unsigned long CHANGE_LOCK  = 5000; // 5s anti-flicker lock
+// 🔥 Stability tuning
+const unsigned long STABLE_DELAY = 3000;   // 3 sec stable irukanum
+const unsigned long CHANGE_LOCK  = 5000;   // anti flicker
 
 /* ═════════ GLOBAL STATE ═════════ */
-unsigned long lastSendTime  = 0;
-unsigned long lastACPoll    = 0;
-int  waterLevel    = 0;
-int  lastSentLevel = -1;
-bool tankPing      = false;
+unsigned long lastSendTime = 0;
+int  waterLevel     = 0;
+int  lastSentLevel  = -1;
+bool tankPing       = false;
 
 /* Stability variables */
-int stableState             = HIGH;
-int lastReading             = HIGH;
-unsigned long lastChangeTime     = 0;
+int stableState = HIGH;
+int lastReading = HIGH;
+unsigned long lastChangeTime = 0;
 unsigned long lastAcceptedChange = 0;
-
-// FIX: First reading on boot must always be accepted
-bool firstReading = true;
 
 /* ═════════ WIFI ═════════ */
 void connectWiFi() {
@@ -61,34 +55,34 @@ void connectWiFi() {
   }
 }
 
-/* ═════════ SENSOR ═════════ */
+/* ═════════ SENSOR (FIXED LOGIC 🔥) ═════════ */
 void readSensor() {
   int reading = digitalRead(floatSwitchPin);
 
+  // detect change
   if (reading != lastReading) {
     lastChangeTime = millis();
-    lastReading    = reading;
+    lastReading = reading;
   }
 
+  // check stability
   if ((millis() - lastChangeTime) > STABLE_DELAY) {
     if (stableState != reading) {
-      if (!firstReading && (millis() - lastAcceptedChange < CHANGE_LOCK)) {
-        return; 
-      }
 
-      firstReading       = false;
+      // anti flicker
+      if (millis() - lastAcceptedChange < CHANGE_LOCK) return;
+
       lastAcceptedChange = millis();
-      stableState        = reading;
+      stableState = reading;
 
+      // 🔥 LOGIC FIXED HERE
       if (stableState == LOW) {
-        waterLevel = 100;
+        waterLevel = 100;   // FULL ✅ (NC switch)
       } else {
-        waterLevel = 0;
+        waterLevel = 0;     // EMPTY
       }
 
-      Serial.printf("[Stable] Water Level = %d%% (%s)\n",
-                    waterLevel,
-                    stableState == LOW ? "LOW=FULL" : "HIGH=EMPTY");
+      Serial.printf("[Stable] Water Level = %d%%\n", waterLevel);
     }
   }
 }
@@ -109,46 +103,19 @@ void updateSupabase() {
   http.addHeader("Content-Type",  "application/json");
   http.addHeader("Prefer",        "return=minimal");
 
+  // heartbeat toggle
   tankPing = !tankPing;
 
   String payload = "{\"water_level\":" + String(waterLevel) +
-                   ",\"tank_ping\":"   + String(tankPing ? "true" : "false") + "}";
+                   ",\"tank_ping\":" + String(tankPing ? "true" : "false") + "}";
 
   int code = http.sendRequest("PATCH", payload);
+
   if (code > 0) {
-    Serial.printf("[Supabase] PATCH OK -> %d | Level: %d%% | Ping: %d\n",
-                  code, waterLevel, tankPing);
+    Serial.printf("[Tank] Sent: Level=%d%% (HTTP %d)\n", waterLevel, code);
     lastSentLevel = waterLevel;
   } else {
-    Serial.printf("[Supabase] PATCH FAIL -> %d (%s)\n",
-                  code, http.errorToString(code).c_str());
-  }
-  http.end();
-}
-
-void checkACStatus() {
-  if (WiFi.status() != WL_CONNECTED) return;
-
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-
-  // Poll ac_system table for ac_status
-  String url = String(supabaseUrl) + "/rest/v1/ac_system?id=eq.1&select=ac_status";
-  http.begin(client, url);
-  http.addHeader("apikey", anonKey);
-  http.addHeader("Authorization", "Bearer " + String(anonKey));
-
-  int code = http.GET();
-  if (code == 200) {
-    String body = http.getString();
-    DynamicJsonDocument doc(128);
-    deserializeJson(doc, body);
-
-    if (doc.size() > 0) {
-      bool acOn = doc[0]["ac_status"].as<bool>();
-      digitalWrite(acIndicatorPin, acOn ? HIGH : LOW);
-    }
+    Serial.printf("[Tank] Send failed: %s\n", http.errorToString(code).c_str());
   }
   http.end();
 }
@@ -156,16 +123,18 @@ void checkACStatus() {
 /* ═════════ SETUP ═════════ */
 void setup() {
   Serial.begin(115200);
-  pinMode(floatSwitchPin, INPUT); // External 1K pull-up
-  pinMode(acIndicatorPin, OUTPUT);
-  digitalWrite(acIndicatorPin, LOW);
+
+  // external pull-up (1K) use panrom
+  pinMode(floatSwitchPin, INPUT);
 
   connectWiFi();
-  Serial.println("[Tank] Ready | AC Feedback Active on D5");
+  Serial.println("[Tank] Stable Mode ON 🔥 (NC Switch Fixed)");
 }
 
 /* ═════════ LOOP ═════════ */
 void loop() {
+
+  // WiFi reconnect
   if (WiFi.status() != WL_CONNECTED) {
     static unsigned long lastRetry = 0;
     if (millis() - lastRetry > RETRY_INTERVAL) {
@@ -176,23 +145,17 @@ void loop() {
 
   unsigned long now = millis();
 
-  // Read sensor every 200ms
+  // read sensor fast
   static unsigned long lastRead = 0;
   if (now - lastRead > 200) {
     readSensor();
     lastRead = now;
   }
 
-  // Update Tank Status
+  // send data
   bool levelChanged = (waterLevel != lastSentLevel);
   if (levelChanged || (now - lastSendTime > SEND_INTERVAL)) {
     updateSupabase();
     lastSendTime = now;
-  }
-
-  // Poll AC Status every 5s for feedback LED
-  if (now - lastACPoll > AC_POLL_INTERVAL) {
-    checkACStatus();
-    lastACPoll = now;
   }
 }

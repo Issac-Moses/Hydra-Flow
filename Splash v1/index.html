@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TankSync | Motor Control System</title>
+    <meta name="description"
+        content="Smart water motor control dashboard. Manual ON/OFF with 30-minute safety auto-cut and real-time Supabase sync.">
+    <link rel="stylesheet" href="style.css">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;500;700&family=Orbitron:wght@400;700&family=Noto+Sans+JP:wght@300;500;900&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+
+<body>
+    <!-- 🌸 Japanese Aesthetic Layers 🌸 -->
+    <div id="digital-rain"></div>
+    <div id="tree-bg"></div>
+    <div id="leaf-container"></div>
+    <div class="ja-accent left">水モーター</div>
+    <div class="ja-accent right">自動管理</div>
+
+    <div class="dashboard-wrapper">
+        <!-- 🏮 Sidebar Navigation 🏮 -->
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <img src="assets/logo.png" alt="TS" id="appLogo">
+                </div>
+                <div class="logo-text">Hydro<span> Flow</span></div>
+            </div>
+
+            <ul class="nav-links">
+                <li class="active" data-tab="live">
+                    <span class="icon">⌗</span> <span class="label" data-i18n="dashboard">Dashboard</span>
+                </li>
+                <li data-tab="analytics">
+                    <span class="icon">⬡</span> <span class="label" data-i18n="analytics">Analytics</span>
+                </li>
+                <li data-tab="history">
+                    <span class="icon">▥</span> <span class="label" data-i18n="history">History</span>
+                </li>
+                <li data-tab="schedules">
+                    <span class="icon">⌛</span> <span class="label" data-i18n="schedule">Schedules</span>
+                </li>
+                <li data-tab="weather">
+                    <span class="icon">🌦</span> <span class="label" data-i18n="weather">Weather</span>
+                </li>
+                <li data-tab="settings">
+                    <span class="icon">⚙</span> <span class="label" data-i18n="settings">Settings</span>
+                </li>
+            </ul>
+
+            <!-- 👨‍💻 Creator Card -->
+            <div class="creator-card">
+                <div class="profile-pic" id="profilePicTrigger">
+                    <img src="assets/profile.jpg" alt="IM" id="profileImg">
+                </div>
+                <div class="creator-info">
+                    <h4>Issac Moses D</h4>
+                    <p>B Tech - AI &amp; DS</p>
+                    <a href="http://www.issacmoses.xyz" target="_blank" class="portfolio-btn">
+                        Portfolio 🔗
+                    </a>
+                </div>
+            </div>
+        </nav>
+
+        <!-- 🏢 Main Content Area 🏢 -->
+        <div class="app-container">
+            <!-- Header -->
+            <header>
+                <div class="header-main">
+                    <h1>Hydro<span> Flow</span></h1>
+                    <p>MOTOR AUTOMATION / 水管理システム</p>
+                </div>
+                <div class="system-status">
+                    <div class="mode-badge" id="modeText"><span class="pulse-dot sys-online"></span> ONLINE / オンライン
+                    </div>
+                    <div class="node-heartbeats">
+                        <span id="motorNodeStatus" class="node-status active"><span class="pulse-dot"></span> <span data-i18n="motor_active">MOTOR [ACTIVE]</span></span>
+                        <span id="tankNodeStatus" class="node-status"><span class="pulse-dot offline"></span> <span data-i18n="tank_offline">TANK [OFFLINE]</span></span>
+                    </div>
+                </div>
+                <!-- Mobile Profile Access -->
+                <div class="profile-toggle-mobile" id="mobileProfileBtn" title="Creator Profile">⬢</div>
+            </header>
+
+            <main>
+                <!-- Alerts -->
+                <div id="alertBox" class="alert-container"></div>
+
+                <!-- ══════════════════════════════ -->
+                <!--  PAGE: LIVE DASHBOARD          -->
+                <!-- ══════════════════════════════ -->
+                <div id="tab-live" class="tab-content active">
+                    <div class="grid">
+
+                        <!-- Weather Card -->
+                        <div class="card weather-card">
+                            <div class="card-title">
+                                <h2 data-i18n="weather">Local Weather</h2>
+                                <span class="ja-label">天気予報</span>
+                            </div>
+                            <div id="weatherContent" class="weather-content">
+                                <div class="weather-loading">Fetching forecast...</div>
+                            </div>
+                            <div class="stats-line weather-footer">
+                                <div class="stat-item">
+                                    <label data-i18n="temp">Temp</label>
+                                    <span id="weatherTemp">--°C</span>
+                                </div>
+                                <div class="stat-item">
+                                    <label data-i18n="rain">Rain Chance</label>
+                                    <span id="weatherRain">--%</span>
+                                </div>
+                                <div class="stat-item">
+                                    <label data-i18n="humidity">Humidity</label>
+                                    <span id="weatherHum">--%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Water Level Card -->
+                        <div class="card">
+                            <div class="card-title">
+                                <h2 data-i18n="water_level">Water Level</h2>
+                                <span class="ja-label">貯水レベル</span>
+                            </div>
+                            <div class="tank-visual">
+                                <div id="waterFill" class="water" style="height:0%;"></div>
+                                <div class="level-text">
+                                    <span id="levelText">0%</span>
+                                    <small id="levelDesc">Empty</small>
+                                </div>
+                            </div>
+                            <div class="stats-line">
+                                <div class="stat-item">
+                                    <label>Last Sync</label>
+                                    <span id="lastUpdated">--:--</span>
+                                </div>
+                                <div class="stat-item">
+                                    <label>Tank Node</label>
+                                    <span id="tankStatus" class="stat-val offline">OFFLINE</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Motor Control Card -->
+                        <div class="card">
+                            <div class="card-title">
+                                <h2>Motor Control</h2>
+                                <span class="ja-label">モーター制御</span>
+                            </div>
+                            <div class="motor-status">
+                                <div id="motorIndicator" class="state-indicator off">
+                                    <div class="spinner"></div>
+                                    <div class="ripple-ring r1"></div>
+                                    <div class="ripple-ring r2"></div>
+                                    <div class="core" id="motorStateText">OFF</div>
+                                </div>
+                                <div class="ctrl-btns">
+                                    <button id="btnOn" class="btn btn-on">MANUAL ON</button>
+                                    <button id="btnOff" class="btn btn-off">MANUAL OFF</button>
+                                </div>
+                            </div>
+                            <div class="stats-line">
+                                <div class="stat-item">
+                                    <label>Run Time</label>
+                                    <span id="runTime">0 min</span>
+                                </div>
+                                <div class="stat-item">
+                                    <label>Safety Timer</label>
+                                    <span id="safetyTimer" class="stat-val highlight">--:--</span>
+                                </div>
+                                <div class="stat-item">
+                                    <label>Mode</label>
+                                    <span id="overrideStatus">Auto / 自動</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ══════════════════════════════ -->
+                <!--  PAGE: ACTIVITY HISTORY        -->
+                <!-- ══════════════════════════════ -->
+                <div id="tab-history" class="tab-content">
+                    <div class="grid">
+                        <div class="card history-card" style="grid-column: 1 / -1;">
+                            <div class="card-title">
+                                <h2 data-i18n="logs">Activity Historian</h2>
+                                <span class="ja-label">履歴ログ</span>
+                            </div>
+                            <div id="logList" class="log-container" style="max-height: 500px;"></div>
+                            <div style="display:flex; justify-content: space-between; align-items: center; margin-top:20px;">
+                                <div class="stat-item">
+                                    <label>Total Logs Cached</label>
+                                    <span id="logCount">--</span>
+                                </div>
+                                <button id="btnReport" class="btn btn-on" style="max-width: 240px; padding: 10px 20px;">Download CSV Report</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ══════════════════════════════ -->
+                <!--  PAGE: SCHEDULING CENTER       -->
+                <!-- ══════════════════════════════ -->
+                <div id="tab-schedules" class="tab-content">
+                    <div class="grid">
+                        <div class="card" style="grid-column: 1 / -1;">
+                            <div class="card-title">
+                                <h2 data-i18n="schedule">System Automation</h2>
+                                <span class="ja-label">自動スケジュール</span>
+                            </div>
+                            <div class="schedule-body">
+                                <p style="margin-bottom: 20px; font-size: 0.9rem; color: var(--text-dim);">Planned activation times for the water pump motor node.</p>
+                                <div class="add-schedule-row" style="margin-bottom: 30px;">
+                                    <input type="time" id="newScheduleTime" value="06:00" style="padding: 15px 25px; border-radius: 12px;">
+                                    <button id="btnAddSchedule" class="btn btn-on" style="padding: 15px 40px; border-radius: 12px;">ADD TIME</button>
+                                </div>
+                                <div id="scheduleList" class="schedule-list" style="max-height: none;">
+                                    <div class="schedule-loading">Loading configuration...</div>
+                                </div>
+                            </div>
+                            <div class="stats-line" style="margin-top: 30px;">
+                                <div class="stat-item">
+                                    <label>Auto-OFF Signal</label>
+                                    <span class="stat-val highlight">Tank Full (D4 High)</span>
+                                </div>
+                                <div class="stat-item">
+                                    <label>Hardware Cutoff</label>
+                                    <span class="stat-val highlight">30 Minute Timer</span>
+                                </div>
+                                <div class="stat-item">
+                                    <label>RTC Sync</label>
+                                    <span class="stat-val active">NTP / Active</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ══════════════════════════════ -->
+                <!--  PAGE: DETAILED WEATHER        -->
+                <!-- ══════════════════════════════ -->
+                <div id="tab-weather" class="tab-content">
+                    <div class="grid">
+                        <div class="card weather-card" style="grid-column: 1 / -1;">
+                            <div class="card-title">
+                                <h2 data-i18n="weather">7-Day Local Forecast</h2>
+                                <span class="ja-label">拡張天気予報</span>
+                            </div>
+                            <div id="weatherFullContent" class="weather-forecast-grid">
+                                <div class="weather-loading">Polling environmental nodes...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ══════════════════════════════ -->
+                <!--  PAGE: SYSTEM SETTINGS         -->
+                <!-- ══════════════════════════════ -->
+                <div id="tab-settings" class="tab-content">
+                    <div class="grid">
+                        <div class="card">
+                            <div class="card-title">
+                                <h2 data-i18n="settings">Local Network Control</h2>
+                                <span class="ja-label">ローカル設定</span>
+                            </div>
+                            <div class="settings-group">
+                                <div class="setting-item">
+                                    <label>Motor IP (Static)</label>
+                                    <input type="text" id="localIpInputS" placeholder="e.g. 192.168.1.XX" class="setting-input">
+                                </div>
+                                <div class="setting-item" style="flex-direction: row; justify-content: space-between; align-items: center;">
+                                    <label>Local Command Mode</label>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="localModeToggleS">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                                <p style="font-size: 0.75rem; color: var(--text-dim); margin-top: 10px;">Enabling Local Mode allows you to bypass Supabase and control your motor via direct WiFi HTTP commands.</p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-title">
+                                <h2 data-i18n="preferences">Interface Preferences</h2>
+                                <span class="ja-label">表示設定</span>
+                            </div>
+                            <div class="settings-group">
+                                <div class="setting-item" style="flex-direction: row; justify-content: space-between; align-items: center;">
+                                    <label>Voice Feedback (Tamil/EN)</label>
+                                    <button id="btnVoiceToggleS" class="btn pref-btn" style="width: 50px; border-radius: 12px;">🔊</button>
+                                </div>
+                                <div class="setting-item" style="flex-direction: row; justify-content: space-between; align-items: center;">
+                                    <label>Dashboard Language</label>
+                                    <button id="btnLangToggleS" class="btn pref-btn" style="width: 100px; border-radius: 12px;">🌐 EN</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ══════════════════════════════ -->
+                <!--  PAGE: ANALYTICS               -->
+                <!-- ══════════════════════════════ -->
+                <div id="tab-analytics" class="tab-content">
+                    <div class="analytics-grid">
+                    <!-- Bill Predictor -->
+                    <div class="card">
+                        <div class="card-title">
+                            <h2 data-i18n="bill_predict">Monthly Predictor</h2>
+                            <span class="ja-label">月間予測</span>
+                        </div>
+                        <div class="big-stat primary">
+                            <span id="projBill">₹--</span>
+                            <small id="projBillSub">EST. MONTHLY COST</small>
+                        </div>
+                        <div class="stats-line">
+                            <div class="stat-item">
+                                <label data-i18n="daily_avg">Daily Avg</label>
+                                <span id="dailyAvgCost">₹--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label data-i18n="efficiency">Efficiency</label>
+                                <span id="sysHealth" class="stat-val active">--</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- System Health & Tips -->
+                    <div class="card">
+                        <div class="card-title">
+                            <h2 data-i18n="insights">System Insights</h2>
+                            <span class="ja-label">インサイト</span>
+                        </div>
+                        <div id="healthTips" class="schedule-info" style="text-align: left; font-size: 0.85rem; line-height: 1.5;">
+                            Analyzing historical patterns...
+                        </div>
+                        <div class="stats-line">
+                            <div class="stat-item">
+                                <label data-i18n="pumps">Pumps</label>
+                                <span id="pumpsPerDay">--</span>
+                            </div>
+                            <div class="stat-item">
+                                <label data-i18n="runtime">Avg Run</label>
+                                <span id="avgRuntime">-- min</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Usage Stats -->
+                    <div class="card">
+                        <div class="card-title">
+                            <h2 data-i18n="energy">Usage Stats</h2>
+                            <span class="ja-label">使用統計</span>
+                        </div>
+                            <div class="big-stat-row">
+                                <div class="big-stat primary">
+                                    <div class="big-stat-icon">⚡</div>
+                                    <span id="kwhUnits">0.000</span>
+                                    <small>kWh Used Today</small>
+                                </div>
+                                <div class="big-stat secondary">
+                                    <div class="big-stat-icon">₹</div>
+                                    <span id="totalCost">₹0.00</span>
+                                    <small>Est. Cost Today</small>
+                                </div>
+                            </div>
+                            <div class="stats-line">
+                                <div class="stat-item">
+                                    <label>Pump Rating</label>
+                                    <span>750W (1HP)</span>
+                                </div>
+                                <div class="stat-item">
+                                    <label>Price / Unit</label>
+                                    <span>₹8.00</span>
+                                </div>
+                                <div class="stat-item">
+                                    <label>Run Time</label>
+                                    <span id="todayTotal" class="stat-val highlight">0 min</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 7-Day Summary Card -->
+                        <div class="card analytics-card">
+                            <div class="card-title">
+                                <h2>7-Day Summary</h2>
+                                <span class="ja-label">週間統計</span>
+                            </div>
+                            <div class="big-stat-row">
+                                <div class="big-stat accent">
+                                    <div class="big-stat-icon">📅</div>
+                                    <span id="kwhWeek">0.00</span>
+                                    <small>kWh This Week</small>
+                                </div>
+                                <div class="big-stat warning">
+                                    <div class="big-stat-icon">💰</div>
+                                    <span id="costWeek">₹0.00</span>
+                                    <small>Cost This Week</small>
+                                </div>
+                            </div>
+                            <div class="stats-line">
+                                <div class="stat-item">
+                                    <label>Week Total</label>
+                                    <span id="weekTotal" class="stat-val highlight">0 min</span>
+                                </div>
+                                <div class="stat-item">
+                                    <label>Avg / Day</label>
+                                    <span id="avgDaily">0 min</span>
+                                </div>
+                                <div class="stat-item">
+                                    <label>Tank Level</label>
+                                    <span id="analyticsLevel" class="stat-val highlight">0%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Motor Stats Card -->
+                        <div class="card analytics-card">
+                            <div class="card-title">
+                                <h2>Motor Stats</h2>
+                                <span class="ja-label">モーター統計</span>
+                            </div>
+                            <div class="motor-stat-grid">
+                                <div class="motor-stat-box">
+                                    <div class="msb-icon"><i class="fas fa-power-off"></i></div>
+                                    <span id="totalStarts">0</span>
+                                    <label>Total Starts (7d)</label>
+                                </div>
+                                <div class="motor-stat-box">
+                                    <div class="msb-icon orange"><i class="fas fa-clock"></i></div>
+                                    <span id="avgDailyStat">0 min</span>
+                                    <label>Avg Daily Run</label>
+                                </div>
+                                <div class="motor-stat-box">
+                                    <div class="msb-icon green"><i class="fas fa-shield-alt"></i></div>
+                                    <span>30 min</span>
+                                    <label>Safety Cutoff</label>
+                                </div>
+                                <div class="motor-stat-box">
+                                    <div class="msb-icon blue"><i class="fas fa-bolt"></i></div>
+                                    <span>750W</span>
+                                    <label>Pump Power</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Usage Trend Chart (Full Width) -->
+                        <div class="card analytics-chart-card">
+                            <div class="card-title">
+                                <h2>7-Day Usage Trend</h2>
+                                <span class="ja-label">利用動向</span>
+                            </div>
+                            <div class="chart-container">
+                                <canvas id="usageChart"></canvas>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <!-- 🖼️ Creator Modal (Lightbox) 🖼️ -->
+    <div id="lightbox" class="lightbox">
+        <span class="close-lightbox">&times;</span>
+        <div class="modal-card">
+            <div class="modal-img-container">
+                <img id="lightboxImg" src="" alt="Creator Photo">
+            </div>
+            <div class="modal-info">
+                <h2 id="modalName">Issac Moses D</h2>
+                <p id="modalDesc">B Tech - AI &amp; DS</p>
+                <div class="modal-actions">
+                    <a href="http://www.issacmoses.xyz" target="_blank" class="btn btn-on portfolio-modal-btn">
+                        VISIT PORTFOLIO 🔗
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="script.js"></script>
+</body>
+
+</html>

@@ -19,8 +19,7 @@ const wrapTimeout = (promise, ms = 15000) =>
 let realtimeChannel = null;
 let usageChart = null;
 let currentTab = 'live';
-let lastKnownData = { motor_status: false, water_level: 0 }; // Initialize
-let lastKnownACData = { ac_status: false };
+let lastKnownData = null;
 let localIp = localStorage.getItem('tanksync_local_ip') || '';
 let localMode = localStorage.getItem('tanksync_local_mode') === 'true';
 
@@ -30,19 +29,30 @@ let voiceEnabled = localStorage.getItem('tanksync_voice') !== 'false';
 
 const I18N_DICT = {
     en: {
-        dashboard: "Dashboard", analytics: "Performance", weather: "Weather Info",
-        water_level: "Water Level", motor_control: "Unit Control", schedule: "Automations",
-        logs: "System Logs", energy: "Energy Usage", week_summary: "Weekly Summary",
-        temp: "Temp", rain: "Rain", humidity: "Humidity",
-        motor_active: "CONTROLLER", tank_offline: "SENSOR NODE",
-        motor_on: "System Activated", motor_off: "System Deactivated",
-        tank_full: "System Alert: Tank is Full", tank_empty: "System Alert: Tank is Empty",
-        bill_predict: "Financial Forecast", daily_avg: "Daily Avg", efficiency: "Efficiency",
-        insights: "System Insights", pumps: "Activations", runtime: "Avg Run",
-        history: "Activity Logs", settings: "Configuration", preferences: "Preferences"
+        dashboard: "Dashboard", analytics: "Analytics", weather: "Local Weather",
+        water_level: "Water Level", motor_control: "Motor Control", schedule: "Auto Schedule",
+        logs: "Activity Logs", energy: "Energy Today", week_summary: "7-Day Summary",
+        temp: "Temp", rain: "Rain Chance", humidity: "Humidity",
+        motor_active: "MOTOR [ACTIVE]", tank_offline: "TANK [OFFLINE]",
+        motor_on: "Motor has been started", motor_off: "Motor has been stopped",
+        tank_full: "Warning: Tank is 100% full", tank_empty: "Alert: Tank is empty",
+        bill_predict: "Monthly Predictor", daily_avg: "Daily Avg", efficiency: "Efficiency",
+        insights: "System Insights", pumps: "Pumps", runtime: "Avg Run",
+        history: "History", settings: "Settings", preferences: "Preferences"
+    },
+    ta: {
+        dashboard: "முகப்பு", analytics: "புள்ளிவிவரம்", weather: "உள்ளூர் வானிலை",
+        water_level: "நீர் மட்டம்", motor_control: "மோட்டார் கட்டுப்பாடு", schedule: "தானியங்கி அட்டவணை",
+        logs: "நடவடிக்கை பதிவுகள்", energy: "இன்றைய மின்சாரம்", week_summary: "7-நாள் சுருக்கம்",
+        temp: "வெப்பநிலை", rain: "மழை வாய்ப்பு", humidity: "ஈரப்பதம்",
+        motor_active: "மோட்டார் [செயலில்]", tank_offline: "டேங்க் [ஆஃப்லைன்]",
+        motor_on: "மோட்டார் இயக்கப்பட்டது", motor_off: "மோட்டார் நிறுத்தப்பட்டது",
+        tank_full: "எச்சரிக்கை: டேங்க் 100% நிறைந்தது", tank_empty: "எச்சரிக்கை: டேங்க் காலியாக உள்ளது",
+        bill_predict: "மாதாந்திர முன்னறிவிப்பு", daily_avg: "தினசரி சராசரி", efficiency: "செயல்திறன்",
+        insights: "அமைப்பின் நுண்ணறிவு", pumps: "இயக்கங்கள்", runtime: "இயக்க நேரம்",
+        history: "வரலாறு", settings: "அமைப்புகள்", preferences: "விருப்பங்கள்"
     }
 };
-
 
 // ── UI ELEMENTS ───────────────────────────────────
 const elLevelText = () => document.getElementById('levelText');
@@ -58,10 +68,6 @@ const elTankNode = () => document.getElementById('tankNodeStatus');
 const elScheduleList = () => document.getElementById('scheduleList');
 const elScheduleInfo = () => document.getElementById('scheduleStatusInfo');
 const elLogList = () => document.getElementById('logList');
-const elACInd = () => document.getElementById('acIndicator');
-const elACState = () => document.getElementById('acStateText');
-const elACScheduleList = () => document.getElementById('acScheduleList');
-const elACNode = () => document.getElementById('acNodeStatus');
 
 // ── TAB SWITCHING ─────────────────────────────────
 function switchTab(tabId) {
@@ -78,58 +84,30 @@ function switchTab(tabId) {
     // Trigger data refresh based on tab
     if (tabId === 'analytics') fetchAnalytics();
     if (tabId === 'history') fetchLogs();
-    if (tabId === 'schedules') { fetchSchedules(); fetchACSchedules(); }
+    if (tabId === 'schedules') fetchSchedules();
     if (tabId === 'weather') fetchWeather();
 }
 
 // ── CORE FETCH & UPDATE ───────────────────────────
 async function fetchState() {
     try {
-        const { data, error } = await wrapTimeout(db.from('motor_system').select('*').eq('id', 1).single());
-        if (!error && data) updateUI(data);
+        const { data, error } = await wrapTimeout(
+            db.from('motor_system').select('*').eq('id', 1).single()
+        );
+        if (error) throw error;
+        if (data) {
+            const prevStatus = lastKnownData?.motor_status;
+            const prevLevel = lastKnownData?.water_level;
 
-        const { data: acData, error: acError } = await wrapTimeout(db.from('ac_system').select('*').eq('id', 1).single());
-        if (!acError && acData) updateACUI(acData);
+            updateUI(data);
+
+            // Voice Alerts for state changes
+            if (prevStatus === false && data.motor_status === true) announce('motor_on');
+            if (prevStatus === true && data.motor_status === false) announce('motor_off');
+            if (prevLevel < 100 && data.water_level === 100) announce('tank_full');
+        }
     } catch (err) {
         console.error('[Sync Error]', err.message);
-    }
-}
-
-function updateACUI(data) {
-    lastKnownACData = data;
-    const isAcOn = data.ac_status ?? false;
-    const now = new Date();
-    const acLastSeen = data.ac_last_seen ? new Date(data.ac_last_seen) : new Date(0);
-    const acOnline = (now - acLastSeen) / 60000 < 3;
-
-    // UI Updates
-    const acIndEl = elACInd();
-    const acStateEl = elACState();
-    const acStatusTextEl = document.getElementById('acStatusText');
-    const acLastUpdatedEl = document.getElementById('acLastUpdated');
-    const acNodeEl = elACNode();
-
-    if (acIndEl) {
-        acIndEl.classList.toggle('on', isAcOn);
-        acIndEl.classList.toggle('off', !isAcOn);
-    }
-    if (acStateEl) acStateEl.innerText = isAcOn ? 'ON' : 'OFF';
-
-    if (acStatusTextEl) {
-        acStatusTextEl.innerText = acOnline ? 'ACTIVE' : 'OFFLINE';
-        acStatusTextEl.classList.toggle('active', acOnline);
-        acStatusTextEl.classList.toggle('offline', !acOnline);
-    }
-    if (acLastUpdatedEl) {
-        acLastUpdatedEl.innerText = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    }
-
-    if (acNodeEl) {
-        const dot = acNodeEl.querySelector('.pulse-dot');
-        const textSpan = acNodeEl.querySelector('span:last-child');
-        acNodeEl.classList.toggle('active', acOnline);
-        if (textSpan) textSpan.innerText = acOnline ? ' AC NODE' : ' AC [OFFLINE]';
-        if (dot) dot.classList.toggle('offline', !acOnline);
     }
 }
 
@@ -143,10 +121,8 @@ function updateUI(data) {
 
     const tankLastSeen = data.tank_last_seen ? new Date(data.tank_last_seen) : new Date(0);
     const motorLastSeen = data.motor_last_seen ? new Date(data.motor_last_seen) : new Date(0);
-    const tankOnline = (now - tankLastSeen) / 60000 < 3;
-    const motorOnline = (now - motorLastSeen) / 60000 < 3;
-
-    console.log(`[Pulse] Tank: ${Math.round((now - tankLastSeen) / 1000)}s ago | Motor: ${Math.round((now - motorLastSeen) / 1000)}s ago`);
+    const tankOnline = (now - tankLastSeen) / 60000 < 2;
+    const motorOnline = (now - motorLastSeen) / 60000 < 2;
 
     // ── 2. Water Level ───────────────────────────
     const levelTextEl = elLevelText();
@@ -197,40 +173,37 @@ function updateUI(data) {
     }
     if (tankNodeEl) {
         const dot = tankNodeEl.querySelector('.pulse-dot');
-        const textSpan = tankNodeEl.querySelector('span:last-child');
         tankNodeEl.classList.toggle('active', tankOnline);
-        if (textSpan) textSpan.innerText = tankOnline ? ' SENSOR NODE' : ' SENSOR [OFFLINE]';
+        tankNodeEl.lastChild.textContent = tankOnline ? ' TANK [ACTIVE]' : ' TANK [OFFLINE]';
         if (dot) dot.classList.toggle('offline', !tankOnline);
     }
-
 
     // ── 6. Motor Node Badge (header) ─────────────
     const motorNodeEl = elMotorNode();
     if (motorNodeEl) {
         const dot = motorNodeEl.querySelector('.pulse-dot');
-        const textSpan = motorNodeEl.querySelector('span:last-child');
         motorNodeEl.classList.toggle('active', motorOnline);
-        if (textSpan) textSpan.innerText = motorOnline ? ' CONTROLLER' : ' CTRL [OFFLINE]';
+        motorNodeEl.lastChild.textContent = motorOnline ? ' MOTOR [ACTIVE]' : ' MOTOR [OFFLINE]';
         if (dot) dot.classList.toggle('offline', !motorOnline);
     }
-
 }
 
 // ── ADVANCED UTILITIES ───────────────────────────
 function updateLanguage() {
     const btn = document.getElementById('btnLangToggleS');
-    if (btn) btn.innerText = 'EN'; // Lock to English for Formal SaaS
+    if (btn) btn.innerText = lang === 'en' ? '🌐 EN' : '🌐 தமிழ்';
 
     document.querySelectorAll('[data-i18n]').forEach(el => {
         const key = el.getAttribute('data-i18n');
-        if (I18N_DICT['en'][key]) {
-            el.innerText = I18N_DICT['en'][key];
+        if (I18N_DICT[lang][key]) {
+            el.innerText = I18N_DICT[lang][key];
         }
     });
 
+    // Tab Labels
     const setLabel = (tid, key) => {
         const el = document.querySelector(`.nav-links li[data-tab="${tid}"] .label`);
-        if (el) el.innerText = I18N_DICT['en'][key];
+        if (el) el.innerText = I18N_DICT[lang][key];
     };
     setLabel('live', 'dashboard');
     setLabel('analytics', 'analytics');
@@ -240,14 +213,13 @@ function updateLanguage() {
     setLabel('settings', 'settings');
 }
 
-
 function announce(key) {
     if (!voiceEnabled) return;
-    const text = I18N_DICT['en'][key];
+    const text = I18N_DICT[lang][key];
     if (!text) return;
 
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'en-US';
+    utterance.lang = lang === 'en' ? 'en-US' : 'ta-IN';
     utterance.rate = 0.95;
     window.speechSynthesis.speak(utterance);
 }
@@ -322,53 +294,37 @@ async function fetchWeather() {
 
 // ── MOTOR COMMANDS ────────────────────────────────
 async function setMotor(status) {
-    // ── OPTIMISTIC UI: Update instantly ──
-    lastKnownData.motor_status = status;
-    updateUI(lastKnownData);
-    
     if (localMode && localIp) {
         try {
             const endpoint = status ? '/on' : '/off';
             const res = await fetch(`http://${localIp}${endpoint}`, { mode: 'cors' });
             if (!res.ok) throw new Error('Local device unreachable');
+            const data = await res.json();
+            console.log('[Local] Motor command success:', data);
+
+            // Announce local command
             announce(status ? 'motor_on' : 'motor_off');
+
+            // Still update Supabase if possible so logs are recorded
             db.from('motor_system').update({ motor_status: status, manual_override: true, mode: 'LOCAL' }).eq('id', 1).then();
             return;
         } catch (err) {
             console.warn('[Local Mode Failed]', err.message);
+            if (!confirm('Local control failed. Try Supabase (Internet)?')) return;
         }
     }
 
     try {
         const { error } = await wrapTimeout(
             db.from('motor_system')
-                .update({ motor_status: status, manual_override: true, mode: 'STANDARD' })
+                .update({ motor_status: status, manual_override: true, mode: 'ONLINE' })
                 .eq('id', 1)
         );
         if (error) throw error;
     } catch (err) {
-        console.error('Command failed:', err.message);
-        // Revert on failure
-        fetchState(); 
+        alert('Motor command failed: ' + err.message);
     }
 }
-
-async function setAC(status) {
-    // ── OPTIMISTIC UI: Update instantly ──
-    lastKnownACData.ac_status = status;
-    updateACUI(lastKnownACData);
-
-    try {
-        const { error } = await wrapTimeout(
-            db.from('ac_system').update({ ac_status: status, mode: 'STANDARD' }).eq('id', 1)
-        );
-        if (error) throw error;
-    } catch (err) {
-        console.error('AC command failed:', err.message);
-        fetchState();
-    }
-}
-
 
 // ── SCHEDULE MANAGEMENT ───────────────────────────
 async function fetchSchedules() {
@@ -462,65 +418,6 @@ async function toggleSchedule(id, enabled) {
         if (error) throw error;
         fetchSchedules(); // Manual refresh
     } catch (err) { alert('Update failed: ' + err.message); }
-}
-
-async function fetchACSchedules() {
-    try {
-        const { data, error } = await wrapTimeout(
-            db.from('ac_schedules').select('*').order('on_time', { ascending: true })
-        );
-        if (error) throw error;
-        renderACSchedules(data || []);
-    } catch (err) {
-        console.error('[AC Schedule Error]', err.message);
-    }
-}
-
-function renderACSchedules(list) {
-    const el = elACScheduleList();
-    if (!el) return;
-    if (list.length === 0) { el.innerHTML = '<div class="empty-state">No AC schedules.</div>'; return; }
-
-    el.innerHTML = list.map(item => `
-        <div class="schedule-item">
-            <div class="schedule-item-info">
-                <span class="time">${item.on_time} - ${item.off_time}</span>
-                <span>AC Operation Window</span>
-            </div>
-            <div class="schedule-item-actions">
-                <label class="toggle-switch">
-                    <input type="checkbox" ${item.enabled ? 'checked' : ''} onchange="toggleACSchedule(${item.id}, this.checked)">
-                    <span class="toggle-slider"></span>
-                </label>
-                <button class="btn-delete" onclick="deleteACSchedule(${item.id})">✕</button>
-            </div>
-        </div>
-    `).join('');
-}
-
-async function addACSchedule() {
-    const on = document.getElementById('acOnTime').value;
-    const off = document.getElementById('acOffTime').value;
-    try {
-        const { error } = await wrapTimeout(db.from('ac_schedules').insert([{ on_time: on, off_time: off, enabled: true }]));
-        if (error) throw error;
-        fetchACSchedules();
-    } catch (err) { alert('Failed: ' + err.message); }
-}
-
-async function deleteACSchedule(id) {
-    if (!confirm('Delete?')) return;
-    try {
-        await db.from('ac_schedules').delete().eq('id', id);
-        fetchACSchedules();
-    } catch (err) { alert('Failed: ' + err.message); }
-}
-
-async function toggleACSchedule(id, enabled) {
-    try {
-        await db.from('ac_schedules').update({ enabled }).eq('id', id);
-        fetchACSchedules();
-    } catch (err) { alert('Failed: ' + err.message); }
 }
 
 // ── ACTIVITY LOGS ─────────────────────────────────
@@ -718,8 +615,7 @@ function buildAnalytics(logs, sys) {
     set('dailyAvgCost', `₹${avgCost.toFixed(2)}`);
     set('projBill', `₹${projBill.toFixed(0)}`);
     const billSub = document.getElementById('projBillSub');
-    if (billSub) billSub.innerText = 'ESTIMATED MONTHLY COST';
-
+    if (billSub) billSub.innerText = lang === 'en' ? 'ESTIMATED MONTHLY COST' : 'மதிப்பிடப்பட்ட மாத செலவு';
 
     const pumpsPerDay = (totalStarts / 7).toFixed(1);
     const avgRun = totalStarts > 0 ? (totalMinsWeek / totalStarts) : 0;
@@ -745,14 +641,12 @@ function buildAnalytics(logs, sys) {
             tipMsg = 'High usage detected. Plan runs to save energy.';
         }
 
-        if (efficiencyMsg === 'OPTIMAL') {
-            tipMsg = 'The system is currently maintaining high efficiency.';
-        } else if (efficiencyMsg === 'POOR') {
-            tipMsg = 'Low efficiency detected. Please check your physical infrastructure.';
-        } else {
-            tipMsg = 'Maintenance alert: Standard performance levels detected.';
+        if (lang === 'ta') {
+            if (efficiencyMsg === 'OPTIMAL') efficiencyMsg = 'சிறப்பானது';
+            if (efficiencyMsg === 'NORMAL') efficiencyMsg = 'சாதாரணமானது';
+            if (efficiencyMsg === 'POOR') efficiencyMsg = 'மோசமானது';
+            tipMsg = efficiencyMsg === 'சிறப்பானது' ? 'சிஸ்டம் சிறப்பாக இயங்குகிறது.' : (efficiencyMsg === 'மோசமானது' ? 'கசிவுகள் உள்ளதா என சரிபார்க்கவும்.' : 'பயன்பாடு அதிகமாக உள்ளது.');
         }
-
         healthEl.innerText = efficiencyMsg;
         tipsEl.innerText = tipMsg;
     }
@@ -769,19 +663,30 @@ function renderChart(labels, minuteData, startData) {
     if (usageChart) usageChart.destroy();
 
     usageChart = new Chart(ctx, {
-        type: 'line',
+        type: 'bar',
         data: {
             labels,
             datasets: [
                 {
                     label: 'Run Time (min)',
                     data: minuteData,
-                    backgroundColor: 'rgba(99, 102, 241, 0.1)',
-                    borderColor: '#6366f1',
-                    borderWidth: 3,
-                    fill: true,
-                    tension: 0.4,
+                    backgroundColor: 'rgba(0, 229, 255, 0.25)',
+                    borderColor: '#00E5FF',
+                    borderWidth: 2,
+                    borderRadius: 8,
                     yAxisID: 'y',
+                },
+                {
+                    label: 'Motor Starts',
+                    data: startData,
+                    type: 'line',
+                    borderColor: '#FF9100',
+                    backgroundColor: 'rgba(255, 145, 0, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 5,
+                    pointBackgroundColor: '#FF9100',
+                    tension: 0.4,
+                    yAxisID: 'y1',
                 }
             ]
         },
@@ -791,25 +696,33 @@ function renderChart(labels, minuteData, startData) {
             interaction: { mode: 'index', intersect: false },
             plugins: {
                 legend: {
-                    display: false
+                    labels: { color: '#64748b', font: { family: 'Rajdhani', size: 13, weight: '700' } }
                 },
-                tooltip: { bodyFont: { family: 'Inter' }, titleFont: { family: 'Inter' } }
+                tooltip: { bodyFont: { family: 'Rajdhani' }, titleFont: { family: 'Orbitron' } }
             },
             scales: {
                 x: {
-                    ticks: { color: '#64748b', font: { family: 'Inter', size: 11 } },
-                    grid: { display: false }
+                    ticks: { color: '#64748b', font: { family: 'Rajdhani', size: 12 } },
+                    grid: { color: 'rgba(0,0,0,0.04)' }
                 },
                 y: {
                     beginAtZero: true,
-                    ticks: { color: '#64748b', font: { family: 'Inter', size: 11 } },
-                    grid: { color: '#f1f5f9' }
+                    position: 'left',
+                    ticks: { color: '#00E5FF', font: { family: 'Orbitron', size: 11 } },
+                    grid: { color: 'rgba(0,229,255,0.08)' },
+                    title: { display: true, text: 'Minutes', color: '#00E5FF', font: { family: 'Rajdhani', size: 12 } }
+                },
+                y1: {
+                    beginAtZero: true,
+                    position: 'right',
+                    ticks: { color: '#FF9100', font: { family: 'Orbitron', size: 11 }, stepSize: 1 },
+                    grid: { drawOnChartArea: false },
+                    title: { display: true, text: 'Starts', color: '#FF9100', font: { family: 'Rajdhani', size: 12 } }
                 }
             }
         }
     });
 }
-
 
 // ── REALTIME ─────────────────────────────────────
 function setupRealtime() {
@@ -819,14 +732,8 @@ function setupRealtime() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'motor_system' }, p => {
             if (p.new) updateUI(p.new);
         })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'ac_system' }, p => {
-            if (p.new) updateACUI(p.new);
-        })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'motor_schedules' }, () => {
             fetchSchedules();
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'ac_schedules' }, () => {
-            fetchACSchedules();
         })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'motor_logs' }, () => {
             fetchLogs();
@@ -835,33 +742,30 @@ function setupRealtime() {
         .subscribe(s => console.log('[Realtime]', s));
 }
 
-// ── REFRESH LOGIC ────────────────────────────────
-function refreshAll() {
-    fetchState();
-    fetchSchedules();
-    fetchLogs();
-    setupRealtime();
-    if (currentTab === 'analytics') fetchAnalytics();
-    if (currentTab === 'weather') fetchWeather();
+// ── LIGHTBOX ──────────────────────────────────────
+function openLightbox() {
+    const lb = document.getElementById('lightbox');
+    const img = document.getElementById('lightboxImg');
+    const src = document.getElementById('profileImg')?.src;
+    if (img) img.src = src || '';
+    if (lb) lb.classList.add('active');
+}
+
+function closeLightbox() {
+    const lb = document.getElementById('lightbox');
+    if (lb) lb.classList.remove('active');
 }
 
 // ── LIFECYCLE ─────────────────────────────────────
 document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-        refreshAll();
+        fetchState();
+        fetchSchedules();
+        fetchLogs();
+        setupRealtime();
+        if (currentTab === 'analytics') fetchAnalytics();
     }
 });
-
-// Periodic Refresh for Mobile (Ensures UI stays fresh even if Realtime drops)
-function refreshAll() {
-    fetchState();
-    fetchSchedules();
-    fetchLogs();
-    setupRealtime();
-    if (currentTab === 'analytics') fetchAnalytics();
-}
-
-setInterval(fetchState, 15000); // Background poll every 15s
 
 // ── HEARTBEAT WATCHDOG (runs every 30s independently) ──────────
 // KEY FIX: When boards are OFF, Realtime never fires.
@@ -872,8 +776,8 @@ function checkHeartbeats() {
     const now = new Date();
     const tankLastSeen = lastKnownData.tank_last_seen ? new Date(lastKnownData.tank_last_seen) : new Date(0);
     const motorLastSeen = lastKnownData.motor_last_seen ? new Date(lastKnownData.motor_last_seen) : new Date(0);
-    const tankOnline = (now - tankLastSeen) / 60000 < 3;
-    const motorOnline = (now - motorLastSeen) / 60000 < 3;
+    const tankOnline = (now - tankLastSeen) / 60000 < 2;
+    const motorOnline = (now - motorLastSeen) / 60000 < 2;
 
     // Tank card badge
     const tankStatusEl = document.getElementById('tankStatus');
@@ -887,25 +791,12 @@ function checkHeartbeats() {
     const tankNodeEl = document.getElementById('tankNodeStatus');
     if (tankNodeEl) {
         const dot = tankNodeEl.querySelector('.pulse-dot');
-        const textSpan = tankNodeEl.querySelector('span:last-child');
         tankNodeEl.classList.toggle('active', tankOnline);
-        if (textSpan) textSpan.innerText = tankOnline ? ' SENSOR NODE' : ' SENSOR [OFFLINE]';
+        tankNodeEl.lastChild.textContent = tankOnline ? ' TANK [ACTIVE]' : ' TANK [OFFLINE]';
         if (dot) { dot.classList.toggle('offline', !tankOnline); }
     }
 
     console.log(`[Watchdog] Tank: ${Math.floor((now - tankLastSeen) / 60000)}m ago → ${tankOnline ? 'ONLINE' : 'OFFLINE'} | Motor: ${Math.floor((now - motorLastSeen) / 60000)}m ago → ${motorOnline ? 'ONLINE' : 'OFFLINE'}`);
-
-    // AC Node Watchdog
-    const acNodeEl = document.getElementById('acNodeStatus');
-    if (lastKnownACData && acNodeEl) {
-        const acLastSeen = lastKnownACData.ac_last_seen ? new Date(lastKnownACData.ac_last_seen) : new Date(0);
-        const acOnline = (now - acLastSeen) / 60000 < 3;
-        const dot = acNodeEl.querySelector('.pulse-dot');
-        const textSpan = acNodeEl.querySelector('span:last-child');
-        acNodeEl.classList.toggle('active', acOnline);
-        if (textSpan) textSpan.innerText = acOnline ? ' AC NODE' : ' AC [OFFLINE]';
-        if (dot) dot.classList.toggle('offline', !acOnline);
-    }
 }
 
 // ── BOOTSTRAP ─────────────────────────────────────
@@ -921,23 +812,16 @@ window.onload = () => {
     fetchLogs();
     setupRealtime();
     fetchWeather();
+    updateLanguage();
 
-    // ── 3. Motor & AC Control ──
+    // ── 3. Motor & Schedule Buttons ──
     const btnOn = document.getElementById('btnOn');
     const btnOff = document.getElementById('btnOff');
     if (btnOn) btnOn.onclick = () => setMotor(true);
     if (btnOff) btnOff.onclick = () => setMotor(false);
 
-    const btnAcOn = document.getElementById('btnAcOn');
-    const btnAcOff = document.getElementById('btnAcOff');
-    if (btnAcOn) btnAcOn.onclick = () => setAC(true);
-    if (btnAcOff) btnAcOff.onclick = () => setAC(false);
-
-    const btnAddSchedule = document.getElementById('btnAddSchedule');
-    if (btnAddSchedule) btnAddSchedule.onclick = addSchedule;
-
-    const btnAddACSchedule = document.getElementById('btnAddACSchedule');
-    if (btnAddACSchedule) btnAddACSchedule.onclick = addACSchedule;
+    const btnAdd = document.getElementById('btnAddSchedule');
+    if (btnAdd) btnAdd.onclick = addSchedule;
 
     const btnReport = document.getElementById('btnReport');
     if (btnReport) btnReport.onclick = downloadCSV;
@@ -962,16 +846,46 @@ window.onload = () => {
             const badge = document.getElementById('modeText');
             if (badge) {
                 badge.innerHTML = localMode 
-                    ? '<span class="pulse-dot" style="background:#f1c40f"></span> LOCAL OVERRIDE'
-                    : '<span class="pulse-dot sys-online"></span> SYSTEM ONLINE';
+                    ? '<span class="pulse-dot" style="background:#f1c40f"></span> LOCAL / ローカル'
+                    : '<span class="pulse-dot sys-online"></span> ONLINE / オンライン';
             }
         };
         // Initial badge setup
         modeTglS.dispatchEvent(new Event('change'));
     }
 
-    // ── 5. Maintenance Timers ──
+    // ── 5. Settings: Preferences ──
+    const btnLangS = document.getElementById('btnLangToggleS');
+    const btnVoiceS = document.getElementById('btnVoiceToggleS');
+
+    if (btnLangS) {
+        btnLangS.onclick = () => {
+            lang = (lang === 'en') ? 'ta' : 'en';
+            localStorage.setItem('tanksync_lang', lang);
+            updateLanguage();
+        };
+    }
+    if (btnVoiceS) {
+        btnVoiceS.classList.toggle('muted', !voiceEnabled);
+        btnVoiceS.onclick = () => {
+            voiceEnabled = !voiceEnabled;
+            localStorage.setItem('tanksync_voice', voiceEnabled);
+            btnVoiceS.classList.toggle('muted', !voiceEnabled);
+            if (voiceEnabled) announce('dashboard');
+        };
+    }
+
+    // ── 6. Maintenance Timers ──
     setInterval(checkHeartbeats, 30000);
     setInterval(fetchWeather, 1800000);
-    setInterval(fetchState, 15000);
+
+    // Profile Lightbox
+    const trigger = document.getElementById('profilePicTrigger');
+    const mbPic = document.getElementById('mobileProfileBtn');
+    const closeBtn = document.querySelector('.close-lightbox');
+    const lb = document.getElementById('lightbox');
+    if (trigger) trigger.onclick = openLightbox;
+    if (mbPic) mbPic.onclick = openLightbox;
+    if (closeBtn) closeBtn.onclick = closeLightbox;
+    if (lb) lb.onclick = (e) => { if (e.target === lb) closeLightbox(); };
 };

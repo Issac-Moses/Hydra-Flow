@@ -1,12 +1,9 @@
 /* ═══════════════════════════════════════════════════
-   TankSync IoT Motor Control Node (v6.1 - STATIC IP + STABLE FIX)
+   TankSync IoT Motor Control Node (v6.0 - STATIC IP)
    - Multi-Schedule support
    - Heartbeat tracking (using motor_ping toggle)
    - 30-min local safety timer
    - STATIC IP CONFIGURATION (192.168.1.184)
-   - FIX: motorLockUntil guard (prevents echo-OFF)
-   - FIX: pendingSync flag (eliminates double PATCH)
-   - FIX: pollSupabase reads water_level for smart decisions
  ═══════════════════════════════════════════════════ */
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
@@ -19,8 +16,8 @@
 IPAddress local_IP(192, 168, 1, 184);
 IPAddress gateway(192, 168, 1, 1);
 IPAddress subnet(255, 255, 255, 0);
-IPAddress primaryDNS(8, 8, 8, 8);
-IPAddress secondaryDNS(8, 8, 4, 4);
+IPAddress primaryDNS(8, 8, 8, 8);   // Optional
+IPAddress secondaryDNS(8, 8, 4, 4); // Optional
 
 /* ═════════ CONFIGURATION ═════════ */
 const char* ssid     = "IssacMoses";
@@ -30,33 +27,26 @@ const char* supabaseUrl = "https://ulyeoukxyaadfvekdmwc.supabase.co";
 const char* anonKey     = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVseWVvdWt4eWFhZGZ2ZWtkbXdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5ODk1NTcsImV4cCI6MjA4OTU2NTU1N30.w_37uATvP3SFiWPUvUtzPaGTs4oYQQok1uW7RXe5luE";
 
 /* ═════════ PINS ═════════ */
-const int relayPin = D1;
+const int relayPin = D1; // Active HIGH for relay
 
 /* ═════════ SETTINGS ═════════ */
-const int           SAFETY_MINS    = 30;
-const unsigned long POLL_INTERVAL  = 5000;
-const unsigned long SYNC_INTERVAL  = 15000;
+const int           SAFETY_MINS    = 30;    // Hardware-level safety timer
+const unsigned long POLL_INTERVAL  = 5000;  // Poll DB every 5s
+const unsigned long SYNC_INTERVAL  = 10000; // Sync local status every 10s
+const unsigned long RETRY_INTERVAL = 10000; // WiFi retry
 const unsigned long WIFI_RETRY_MS  = 15000;
-
-// ── STABILITY FIX: Lock polling after any motor event ──
-const unsigned long MOTOR_LOCK_MS  = 20000; // 20s lock — prevents echo-OFF
 
 /* ═════════ GLOBAL STATE ═════════ */
 bool motorStatus      = false;
 bool manualOverride   = false;
 bool isOnline         = false;
-bool motor_ping       = false;
+bool motor_ping       = false; // Heartbeat toggle
 String systemMode     = "OFFLINE";
-unsigned long motorStartedAt  = 0;
-bool lastRemoteStatus         = false;
-
-// ── STABILITY FIX: Pending sync & lock ──
-bool          pendingSync    = false;
-unsigned long motorLockUntil = 0;
+unsigned long motorStartedAt = 0; // ms
 
 // Multi-Schedule Data
 struct MotorSchedule {
-  String onTime;
+  String onTime; // "HH:MM"
   bool   enabled;
 };
 MotorSchedule schedules[10];
@@ -64,8 +54,8 @@ int scheduleCount = 0;
 bool ntpSynced    = false;
 
 /* ═════════ WIFI ═════════ */
-unsigned long wifiStartTime = 0;
-bool connecting             = false;
+unsigned long startTime = 0;
+bool connecting         = false;
 
 ESP8266WebServer server(80);
 
@@ -78,7 +68,8 @@ void connectWiFi() {
   if (!connecting) {
     WiFi.disconnect(true);
     delay(100);
-
+    
+    // Config Static IP
     if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
       Serial.println("[WiFi] Static IP Failed to configure");
     }
@@ -89,18 +80,18 @@ void connectWiFi() {
     WiFi.setAutoReconnect(true);
     WiFi.persistent(false);
     WiFi.begin(ssid, password);
-    connecting    = true;
-    wifiStartTime = millis();
+    connecting = true;
+    startTime  = millis();
     Serial.println("[WiFi] Connecting (Static IP: 192.168.1.184)...");
   }
 
-  if (millis() - wifiStartTime > WIFI_RETRY_MS) {
+  if (millis() - startTime > WIFI_RETRY_MS) {
     Serial.println("[WiFi] Retry...");
     connecting = false;
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("[WiFi] Connected! IP: ");
+    Serial.print("[WiFi] Connected! Current IP: ");
     Serial.println(WiFi.localIP());
   }
 }
@@ -123,28 +114,23 @@ void syncToSupabase() {
   http.addHeader("Content-Type",  "application/json");
   http.addHeader("Prefer",        "return=minimal");
 
-  motor_ping = !motor_ping;
+  motor_ping = !motor_ping; // Toggle heartbeat bit
   String payload = "{\"motor_status\":"  + String(motorStatus ? "true" : "false") +
                    ",\"mode\":\""        + systemMode + "\"" +
                    ",\"motor_ping\":"    + String(motor_ping ? "true" : "false") + "}";
 
   int code = http.sendRequest("PATCH", payload);
+  Serial.printf("[Supabase] PATCH → %d | Motor: %s\n", code, motorStatus ? "ON" : "OFF");
+  http.end();
+
   if (code > 0) {
-    Serial.printf("[Supabase] PATCH OK → %d | Motor: %s | Ping: %d\n",
-                  code, motorStatus ? "ON" : "OFF", motor_ping);
     isOnline   = true;
     systemMode = "ONLINE";
-  } else {
-    Serial.printf("[Supabase] PATCH FAIL → %d (%s)\n", code, http.errorToString(code).c_str());
-    isOnline   = false;
-    systemMode = "OFFLINE";
   }
-  http.end();
 }
 
 // ═══════════════════════════════════════════════
 //  SUPABASE – GET (poll DB → local)
-//  FIX: reads water_level too, respects motorLockUntil
 // ═══════════════════════════════════════════════
 void pollSupabase() {
   if (WiFi.status() != WL_CONNECTED) return;
@@ -153,9 +139,7 @@ void pollSupabase() {
   client.setInsecure();
   HTTPClient http;
 
-  // Always poll to check water_level (needed for tank-full safety)
-  String url = String(supabaseUrl) +
-               "/rest/v1/motor_system?id=eq.1&select=motor_status,water_level";
+  String url = String(supabaseUrl) + "/rest/v1/motor_system?id=eq.1&select=motor_status";
   http.begin(client, url);
   http.setTimeout(5000);
   http.addHeader("apikey",        anonKey);
@@ -169,40 +153,18 @@ void pollSupabase() {
 
     if (!err && doc.size() > 0) {
       bool remoteStatus = doc[0]["motor_status"].as<bool>();
-      int  remoteLevel  = doc[0]["water_level"].as<int>();
 
-      isOnline   = true;
-      systemMode = "ONLINE";
-
-      // ── SAFETY: Tank full — ALWAYS force OFF, lock is bypassed ──
-      if (remoteLevel == 100 && motorStatus) {
-        Serial.println("[Poll] Tank FULL — Force motor OFF (lock bypassed)");
-        lastRemoteStatus = false;
-        setMotor(false, "tank_full_poll");
-        http.end();
-        return;
-      }
-
-      // ── LOCK CHECK: Skip non-safety status changes during lock period ──
-      if (motorStatus && millis() < motorLockUntil) {
-        Serial.println("[Poll] Status change ignored — motor lock active");
-        http.end();
-        return;
-      }
-
-      // ── NORMAL: Act on DB motor_status changes ──
+      static bool lastRemoteStatus = false;
       if (remoteStatus != lastRemoteStatus) {
-        Serial.printf("[Poll] DB change: %s → %s\n",
-                      lastRemoteStatus ? "ON" : "OFF",
-                      remoteStatus     ? "ON" : "OFF");
-        lastRemoteStatus = remoteStatus;
-        setMotor(remoteStatus, remoteStatus ? "remote_on" : "remote_off");
+         lastRemoteStatus = remoteStatus;
+         setMotor(remoteStatus, remoteStatus ? "manual_trigger" : "tank_full_or_manual");
       }
+      isOnline = true;
+      systemMode = "ONLINE";
     }
   } else {
-    isOnline   = false;
+    isOnline = false;
     systemMode = "OFFLINE";
-    Serial.printf("[Poll] FAIL → %d\n", code);
   }
   http.end();
 }
@@ -212,7 +174,7 @@ void pollSupabase() {
 // ═══════════════════════════════════════════════
 void fetchSchedule() {
   if (WiFi.status() != WL_CONNECTED) return;
-
+  
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
@@ -246,47 +208,38 @@ void fetchSchedule() {
 
 // ═══════════════════════════════════════════════
 //  MOTOR CONTROL LOGIC
-//  FIX: No longer calls syncToSupabase() directly.
-//       Sets pendingSync=true and motorLockUntil.
 // ═══════════════════════════════════════════════
 void setMotor(bool status, String reason) {
   if (motorStatus == status) return;
 
   motorStatus = status;
   digitalWrite(relayPin, motorStatus ? HIGH : LOW);
-
+  
   if (status) motorStartedAt = millis();
   else        motorStartedAt = 0;
 
-  lastRemoteStatus = status;
-
-  Serial.printf("[Motor] %s | Reason: %s\n", status ? "ON" : "OFF", reason.c_str());
-
-  // ── FIX: Schedule sync without blocking, set lock to prevent echo-OFF ──
-  pendingSync    = true;
-  motorLockUntil = millis() + MOTOR_LOCK_MS;
+  Serial.printf("[Motor] Event: %s | Reason: %s\n", status ? "ON" : "OFF", reason.c_str());
+  syncToSupabase();
 }
 
 void checkSafetyTimer() {
   if (motorStatus && motorStartedAt > 0) {
     if (millis() - motorStartedAt > (unsigned long)SAFETY_MINS * 60 * 1000) {
-      Serial.println("[Safety] 30-min timer expired → Motor OFF");
       setMotor(false, "safety_timer_30min");
     }
   }
 }
 
 void checkSchedules() {
-  if (!ntpSynced || motorStatus) return;
+  if (!ntpSynced || motorStatus) return; // Only start if OFF and time is synced
 
-  String currentTime  = DateTime.format("%H:%M");
+  String currentTime = DateTime.format("%H:%M");
   static String lastRunMinute = "";
 
   if (currentTime == lastRunMinute) return;
 
   for (int i = 0; i < scheduleCount; i++) {
     if (schedules[i].enabled && schedules[i].onTime == currentTime) {
-      Serial.printf("[Schedule] Triggered at %s\n", currentTime.c_str());
       setMotor(true, "schedule");
       lastRunMinute = currentTime;
       break;
@@ -298,12 +251,11 @@ void checkSchedules() {
 //  LOCAL WEB SERVER
 // ═══════════════════════════════════════════════
 void handleStatus() {
-  String json = "{\"motor\":"    + String(motorStatus ? "true" : "false") +
-                ",\"mode\":\""  + systemMode + "\"" +
-                ",\"uptime\":"  + String(millis() / 1000) +
-                ",\"ntp\":"     + String(ntpSynced ? "true" : "false") +
-                ",\"time\":\""  + DateTime.toString() + "\""
-                ",\"lock\":"    + String(millis() < motorLockUntil ? "true" : "false") + "}";
+  String json = "{\"motor\":" + String(motorStatus ? "true" : "false") + 
+                 ",\"mode\":\"" + systemMode + "\"" +
+                 ",\"uptime\":" + String(millis() / 1000) + 
+                 ",\"ntp\":" + String(ntpSynced ? "true" : "false") + 
+                 ",\"time\":\"" + DateTime.toString() + "\"}";
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "application/json", json);
 }
@@ -321,20 +273,15 @@ void handleOff() {
 }
 
 void handleRoot() {
-  String lockStatus = (millis() < motorLockUntil)
-    ? "<span style='color:#f1c40f'>LOCKED (" + String((motorLockUntil - millis()) / 1000) + "s)</span>"
-    : "<span style='color:#2ecc71'>UNLOCKED</span>";
-
   String html = "<html><head><title>TankSync Local</title>";
   html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
-  html += "<meta http-equiv='refresh' content='5'>";
   html += "<style>body{font-family:sans-serif; text-align:center; padding:20px; background:#1a1a2e; color:#fff;} ";
   html += ".card{background:#16213e; padding:30px; border-radius:15px; box-shadow:0 10px 20px rgba(0,0,0,0.3); display:inline-block; min-width:300px;} ";
   html += ".status{font-size:28px; font-weight:bold; color:#00e5ff; margin-bottom:20px;} ";
   html += ".btn{padding:15px 30px; font-size:18px; font-weight:bold; cursor:pointer; border:none; border-radius:8px; margin:10px; transition:0.3s;} ";
   html += ".btn-on{background:#00e676; color:#000;} .btn-off{background:#ff5252; color:#fff;} ";
   html += ".btn:hover{opacity:0.8; transform:scale(1.05);} p{color:#8b8b8b; margin:5px 0;} </style></head><body>";
-
+  
   html += "<div class='card'><h1>TankSync Motor Node</h1>";
   html += "<div class='status'>" + String(motorStatus ? "● MOTOR RUNNING" : "○ MOTOR STOPPED") + "</div>";
   html += "<div class='ctrl'>";
@@ -344,10 +291,9 @@ void handleRoot() {
   html += "<p>Mode: <b>" + systemMode + "</b></p>";
   html += "<p>Schedules: <b>" + String(scheduleCount) + " loaded</b></p>";
   html += "<p>Time: " + DateTime.toString() + " (" + String(ntpSynced ? "SYNCED" : "UNSYNCED") + ")</p>";
-  html += "<p>Poll Lock: " + lockStatus + "</p>";
   html += "<p>Safety Timer: 30 min (Hardcoded)</p>";
   html += "</div></body></html>";
-
+  
   server.sendHeader("Access-Control-Allow-Origin", "*");
   server.send(200, "text/html", html);
 }
@@ -361,19 +307,19 @@ void setup() {
   digitalWrite(relayPin, LOW);
 
   connectWiFi();
-
+  
   DateTime.setServer("pool.ntp.org");
   DateTime.setTimeZone("IST-5:30");
   DateTime.begin(15000);
 
-  server.on("/",       handleRoot);
-  server.on("/on",     handleOn);
-  server.on("/off",    handleOff);
+  server.on("/", handleRoot);
+  server.on("/on", handleOn);
+  server.on("/off", handleOff);
   server.on("/status", handleStatus);
   server.begin();
-
+  
   fetchSchedule();
-  Serial.println("[System] Motor Node v6.1 Ready (Static IP + Stability Fix Active)");
+  Serial.println("[System] Motor Node Initialized with Static IP.");
 }
 
 void loop() {
@@ -386,31 +332,21 @@ void loop() {
     }
 
     unsigned long now = millis();
-    static unsigned long lastPoll  = 0;
-    static unsigned long lastSync  = 0;
+    static unsigned long lastPoll = 0;
+    static unsigned long lastSync = 0;
     static unsigned long lastFetch = 0;
 
-    // ── Priority: handle pending sync immediately after motor event (500ms debounce) ──
-    if (pendingSync && (now >= motorLockUntil - MOTOR_LOCK_MS + 500)) {
-      syncToSupabase();
-      pendingSync = false;
-      lastSync    = now;
-    }
-
-    // ── Poll DB for remote commands ──
     if (now - lastPoll > POLL_INTERVAL) {
       pollSupabase();
       lastPoll = now;
     }
-
-    // ── Periodic heartbeat sync ──
+    
     if (now - lastSync > SYNC_INTERVAL) {
       syncToSupabase();
       lastSync = now;
     }
 
-    // ── Refresh schedule list every 5 minutes ──
-    if (now - lastFetch > 300000) {
+    if (now - lastFetch > 300000) { // Refresh schedules every 5m
       fetchSchedule();
       lastFetch = now;
     }
